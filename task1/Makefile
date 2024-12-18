@@ -9,7 +9,7 @@ compile_util:
 
 assemble:
 	# Assemble start.s into start.o
-	nasm -f elf32 start.s -o start.o
+	nasm -f elf32 -g -F dwarf start.s -o start.o
 
 link:
 	# Link start.o and util.o into final executable

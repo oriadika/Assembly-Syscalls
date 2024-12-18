@@ -32,8 +32,7 @@ _start:
 
     ; Parse command-line arguments
     mov ecx, [esp]                ; argc (argument count)
-    mov esi, [esp + 4]            ; argv (pointer to arguments array)
-    add esi, 4                    ; Skip program name (argv[0])
+    lea esi, [esp + 4]            ; argv (pointer to arguments array)
 
     call parse_args
 
@@ -49,59 +48,73 @@ _start:
 ; parse_args: Parses command-line arguments for -i and -o
 ; ------------------------------------------------------
 parse_args:
-    cmp ecx, 1                    ; Check if there are arguments
+    mov ecx, [esp]          ; argc (argument count)
+    mov esi, [esp + 4]      ; argv (pointer to arguments array)
+    add esi, 4              ; Skip program name (argv[0])
+
+    cmp ecx, 1              ; Check if there are arguments
     jle end_parse_args
 
 arg_loop:
-    cmp ecx, 1                    ; Check if all arguments are processed
+    cmp ecx, 1                  ; If all arguments are processed, exit loop
     jle end_parse_args
 
-    mov edi, [esi]                ; Load current argument
-    test edi, edi                 ; Ensure it's not NULL
+    mov edi, [esi]              ; Load the current argument pointer (argv[i])
+    test edi, edi               ; Ensure the pointer is not NULL
     jz next_arg
 
-    cmp byte [edi], '-'           ; Check if the argument starts with '-'
+    ; Debug: Print the current argument
+    mov eax, syscall_write
+    mov ebx, 1                  ; stdout
+    mov ecx, edi                ; Current argument pointer
+    call strlen                 ; Get argument length
+    mov edx, eax                ; Argument length
+    int 0x80
+
+    ; Validate that the argument starts with '-'
+    cmp byte [edi], '-'         
     jne next_arg
 
     ; Check for input flag "-i"
-    cmp dword [edi], '-i'
+    cmp dword [edi], '-i'       
     je open_input
 
     ; Check for output flag "-o"
-    cmp dword [edi], '-o'
+    cmp dword [edi], '-o'       
     je open_output
 
 next_arg:
-    add esi, 4                    ; Move to the next argument
-    dec ecx                       ; Decrement argument count
+    add esi, 4                  ; Move to the next argv entry
+    dec ecx                     ; Decrement argument count
     jmp arg_loop
 
+
 open_input:
-    add edi, 2                    ; Skip "-i"
+    add edi, 2              ; Skip "-i"
     mov eax, syscall_open
-    mov ebx, edi                  ; File name
-    mov ecx, O_RDONLY             ; Read-only
+    mov ebx, edi            ; File name pointer
+    mov ecx, O_RDONLY       ; Open in read-only mode
     int 0x80
-    cmp eax, 0                    ; Check if open succeeded
+    cmp eax, 0              ; Check if open succeeded
     jl error_open
-    mov [infile], eax             ; Save input file descriptor
+    mov [infile], eax       ; Save input file descriptor
     jmp next_arg
 
 open_output:
-    add edi, 2                    ; Skip "-o"
+    add edi, 2              ; Skip "-o"
     mov eax, syscall_open
-    mov ebx, edi                  ; File name
+    mov ebx, edi            ; File name pointer
     mov ecx, O_WRONLY | O_CREAT | O_TRUNC ; Write-only, create, truncate
-    mov edx, 0666                 ; Permissions for new file
+    mov edx, 0666           ; Permissions for new file
     int 0x80
-    cmp eax, 0                    ; Check if open succeeded
+    cmp eax, 0
     jl error_open
-    mov [outfile], eax            ; Save output file descriptor
+    mov [outfile], eax      ; Save output file descriptor
     jmp next_arg
 
 error_open:
     mov eax, syscall_write
-    mov ebx, 2                    ; stderr
+    mov ebx, 2              ; Write to stderr
     mov ecx, error_msg
     mov edx, error_len
     int 0x80
@@ -111,6 +124,7 @@ error_open:
 
 end_parse_args:
     ret
+
 
 ; ------------------------------------------------------
 ; encode_input: Reads characters, encodes, and writes output
