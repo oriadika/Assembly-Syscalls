@@ -1,24 +1,15 @@
-.SILENT: link assemble compile_util clean run
-.PHONY: all link assemble compile_util clean run
+all: task1 
 
-all: clean assemble compile_util link
+task1: start.o util.o
+	ld -m elf_i386 start.o util.o -o task1
 
-compile_util:
-	# Correct path for Util.c
-	gcc -m32 -Wall -nostdlib -fno-stack-protector -g -c ./Util.c -o util.o
+util.o: Util.c
+	gcc -m32 -Wall -g -ansi -c -nostdlib -fno-stack-protector Util.c -o util.o
 
-assemble:
-	# Assemble start.s into start.o
-	nasm -f elf32 -g -F dwarf start.s -o start.o
+start.o: start.s
+	nasm -f elf32 start.s -o start.o
 
-link:
-	# Link start.o and util.o into final executable
-	ld -m elf_i386 -o task1 start.o util.o
+.PHONY: clean
 
 clean:
-	# Clean up generated files
 	rm -f *.o task1
-
-run:
-	# Run the task1 executable
-	./task1

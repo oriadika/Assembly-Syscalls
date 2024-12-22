@@ -1,169 +1,197 @@
-%define syscall_exit    1
-%define syscall_read    3
-%define syscall_write   4
-%define syscall_open    5
-%define syscall_close   6
+; Constants for standard file descriptors and system calls
+%define STDERR 2
+%define STDOUT 1
+%define STDIN 0
 
-%define O_RDONLY        0
-%define O_WRONLY        1
-%define O_CREAT         0x40
-%define O_TRUNC         0x200
+%define CLOSE 6
+%define OPEN 5
+%define WRITE 4
+%define READ 3
+%define EXIT 1
+
+%define EXIT_SUCCESS 0
+
 
 section .data
-    input_flag db "-i", 0         ; "-i" flag
-    output_flag db "-o", 0        ; "-o" flag
-    newline db 10, 0              ; newline character for output
-    error_msg db "Error: Invalid argument", 10
-    error_len equ $ - error_msg
-    char_buffer db 0              ; single character buffer
+    new_line: db 10, 0      ; Newline character followed by null terminator
+    new_line_len EQU 1      ; Length of the newline character
+    Infile: dd STDIN        ; Default input is standard input (STDIN)
+    Outfile: dd STDOUT      ; Default output is standard output (STDOUT)
 
 section .bss
-    infile resd 1                 ; input file descriptor
-    outfile resd 1                ; output file descriptor
+    buffer: resb 1          ; 1-byte buffer for reading and processing characters
 
 section .text
-extern strlen                     ; Externally provided strlen function
-global _start                     ; Entry point
+global _start
+extern strlen
 
 _start:
-    ; Initialize file descriptors
-    mov dword [infile], 0         ; Default to stdin
-    mov dword [outfile], 1        ; Default to stdout
+    ; Process arguments and environment pointers
+    pop     dword ecx    ; ecx = argc
+    mov     esi, esp     ; esi = argv
+    mov     eax, ecx     ; copy argc to eax
+    shl     eax, 2       ; multiply argc by 4 to get the size of argv in bytes
 
-    ; Parse command-line arguments
-    mov ecx, [esp]                ; argc (argument count)
-    lea esi, [esp + 4]            ; argv (pointer to arguments array)
+    add     eax, esi     ; add the size of argv to the argv address
+    add     eax, 4       ; skip the null pointer after argv
+    push    dword eax    ; char *envp[]
+    push    dword esi    ; char* argv[]
+    push    dword ecx    ; int argc
 
-    call parse_args
+    call    main         ; int main( int argc, char *argv[], char *envp[] )
 
-    ; Perform encoding
-    call encode_input
-
-    ; Exit program
-    mov eax, syscall_exit
-    xor ebx, ebx
-    int 0x80
-
-; ------------------------------------------------------
-; parse_args: Parses command-line arguments for -i and -o
-; ------------------------------------------------------
-parse_args:
-    mov ecx, [esp]          ; argc (argument count)
-    mov esi, [esp + 4]      ; argv (pointer to arguments array)
-    add esi, 4              ; Skip program name (argv[0])
-
-    cmp ecx, 1              ; Check if there are arguments
-    jle end_parse_args
-
-arg_loop:
-    cmp ecx, 1                  ; If all arguments are processed, exit loop
-    jle end_parse_args
-
-    mov edi, [esi]              ; Load the current argument pointer (argv[i])
-    test edi, edi               ; Ensure the pointer is not NULL
-    jz next_arg
-
-    ; Debug: Print the current argument
-    mov eax, syscall_write
-    mov ebx, 1                  ; stdout
-    mov ecx, edi                ; Current argument pointer
-    call strlen                 ; Get argument length
-    mov edx, eax                ; Argument length
-    int 0x80
-
-    ; Validate that the argument starts with '-'
-    cmp byte [edi], '-'         
-    jne next_arg
-
-    ; Check for input flag "-i"
-    cmp dword [edi], '-i'       
-    je open_input
-
-    ; Check for output flag "-o"
-    cmp dword [edi], '-o'       
-    je open_output
-
-next_arg:
-    add esi, 4                  ; Move to the next argv entry
-    dec ecx                     ; Decrement argument count
-    jmp arg_loop
+    mov     ebx, eax
+    mov     eax, EXIT
+    int     0x80
+    nop
+        
+main:
+    ; Prolog
+    push    ebp             ; Save caller state
+    mov     ebp, esp
+    sub     esp, 4          ; Leave space for return value on stack
+    pushad                  ; Save some more caller state
 
 
-open_input:
-    add edi, 2              ; Skip "-i"
-    mov eax, syscall_open
-    mov ebx, edi            ; File name pointer
-    mov ecx, O_RDONLY       ; Open in read-only mode
-    int 0x80
-    cmp eax, 0              ; Check if open succeeded
-    jl error_open
-    mov [infile], eax       ; Save input file descriptor
-    jmp next_arg
+    ; Copy and set "variables"
+    mov     esi, [ebp+12]   ; esi = argv
+    add     esi, 4          ; esi = argv[1]
 
-open_output:
-    add edi, 2              ; Skip "-o"
-    mov eax, syscall_open
-    mov ebx, edi            ; File name pointer
-    mov ecx, O_WRONLY | O_CREAT | O_TRUNC ; Write-only, create, truncate
-    mov edx, 0666           ; Permissions for new file
-    int 0x80
-    cmp eax, 0
-    jl error_open
-    mov [outfile], eax      ; Save output file descriptor
-    jmp next_arg
+    ;;;;;;;;;;;;;;; Debug mode start ;;;;;;;;;;;;;;;
+start_debug_loop:
+    cmp     dword [esi], 0
+    je     end_debug_loop
 
-error_open:
-    mov eax, syscall_write
-    mov ebx, 2              ; Write to stderr
-    mov ecx, error_msg
-    mov edx, error_len
-    int 0x80
-    mov eax, syscall_exit
-    xor ebx, ebx
-    int 0x80
+    ; Check for flags
+    mov     ecx, dword [esi]
+    cmp     byte [ecx], '-'
+    jne     start_print
+    inc     ecx
+    cmp     byte [ecx], 'i' 
+    je      change_infile
+    cmp     byte [ecx], 'o' 
+    je      change_outfile
+start_print:
+    call    print_arg
 
-end_parse_args:
+    ; Update variable
+    add     esi, 4
+end_debug_loop:
+    cmp     dword [esi], 0
+    jne     start_debug_loop
+    ;;;;;;;;;;;;;;; Debug mode end ;;;;;;;;;;;;;;;
+    ;;;;;;;;;;;;;;; Encoder start ;;;;;;;;;;;;;;;
+start_encode_loop:
+    ; Read the char from infile
+    mov     edx, 1
+    mov     ecx, buffer
+    mov     ebx, [Infile]
+    mov     eax, READ
+    int     0x80
+
+    cmp     eax, 0
+    je      end_encode_loop
+
+    call    encode
+
+    ; Print the encoded char
+    mov     edx, 1
+    mov     ecx, buffer
+    mov     ebx, [Outfile]
+    mov     eax, WRITE
+    int     0x80
+
+end_encode_loop:
+    cmp     eax, 0
+    jne      start_encode_loop
+    ;;;;;;;;;;;;;;; Encoder end ;;;;;;;;;;;;;;;
+
+    mov     eax, CLOSE
+    mov     ebx, [Infile]
+    int     0x80
+
+    mov     eax, CLOSE
+    mov     ebx, [Outfile]
+    int     0x80
+
+
+    mov     dword [ebp-4], EXIT_SUCCESS    ; Save returned value...
+
+    ; Epilog
+    popad                   ; Restore caller state (registers)
+    mov     eax, [ebp-4]    ; place returned value where caller can see it
+    add     esp, 4          ; Restore caller state
+    pop     ebp             ; Restore caller state
+    ret                     ; Back to caller
+
+print_arg:
+    push    dword [esi]
+    call    strlen
+    add     esp, 4
+    mov     edx, eax
+    mov     ecx, dword [esi]
+    mov     ebx, STDERR
+    mov     eax, WRITE
+    int     0x80
+
+    mov     edx, new_line_len
+    mov     ecx, new_line
+    mov     ebx, STDERR
+    mov     eax, WRITE
+    int     0x80
     ret
 
-
-; ------------------------------------------------------
-; encode_input: Reads characters, encodes, and writes output
-; ------------------------------------------------------
-encode_input:
-    mov ebx, [infile]             ; Input file descriptor
-    test ebx, ebx
-    jnz read_input
-    mov ebx, 0                    ; Default to stdin
-
-read_input:
-    mov eax, syscall_read
-    mov ecx, char_buffer
-    mov edx, 1                    ; Read one character
-    int 0x80
-    test eax, eax                 ; Check for EOF or error
-    jle end_encode
-
-    ; Encode character
-    mov al, [char_buffer]
-    cmp al, 'A'
-    jl write_output               ; Skip encoding if < 'A'
-    cmp al, 'z'
-    jg write_output               ; Skip encoding if > 'z'
-    inc al                        ; Increment character
-
-write_output:
-    mov [char_buffer], al
-    mov eax, syscall_write
-    mov ebx, [outfile]            ; Output file descriptor
-    test ebx, ebx
-    jnz use_output
-    mov ebx, 1                    ; Default to stdout
-
-use_output:
-    mov ecx, char_buffer
-    mov edx, 1
-    int 0x80
-    jmp read_input
+encode:
+    cmp     dword [ecx], 'A'
+    jl      end_encode
+    cmp     dword [ecx], 'z'
+    jg      end_encode
+    cmp     dword [ecx], 'Z'
+    jle     encode_capital
+    cmp     dword [ecx], 'a'
+    jge     encode_lower
 
 end_encode:
     ret
+    
+encode_capital:
+    cmp     dword [ecx], 'Z'
+    je      put_A
+    inc     dword [ecx]
+    jmp     end_encode
+
+put_A:
+    mov     dword [ecx], 'A'
+    jmp     end_encode
+
+encode_lower:
+    cmp     dword [ecx], 'z'
+    je      put_a
+    inc     dword [ecx]
+    jmp     end_encode
+
+put_a:
+    mov     dword [ecx], 'a'
+    jmp     end_encode
+
+change_infile:
+    inc     ecx
+    mov     eax, OPEN
+    mov     ebx, ecx
+    mov     ecx, 0
+    mov     edx, 0644
+    int     0x80
+    mov     [Infile], eax
+
+    jmp     start_print
+
+change_outfile:
+    inc     ecx
+    mov     eax, OPEN
+    mov     ebx, ecx
+    mov     ecx, 1
+    mov     edx, 0644
+    int     0x80
+    mov     [Outfile], eax
+
+    jmp     start_print

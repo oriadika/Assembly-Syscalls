@@ -1,28 +1,18 @@
-.SILENT: link compile_main compile_util assemble clean run
-.PHONY: all link compile_main compile_util assemble clean run
+all: task2 
 
-all: clean compile_util compile_main assemble link
+task2: main.o start.o Util.o
+	ld -m elf_i386 start.o main.o Util.o -o task2
 
-compile_util:
-	# Compile Util.c to util.o
-	gcc -m32 -Wall -nostdlib -fno-stack-protector -c ../Util.c -o util.o
+util.o: Util.c
+	gcc -m32 -Wall -ansi -c -nostdlib -fno-stack-protector Util.c -o Util.o
 
-compile_main:
-	# Compile main.c to main.o
-	gcc -m32 -Wall -nostdlib -fno-stack-protector -c main.c -o main.o
+main.o: main.c
+	gcc -m32 -Wall -ansi -c -nostdlib -fno-stack-protector main.c -o main.o
 
-assemble:
-	# Assemble start.s into start.o
+start.o: start.s
 	nasm -f elf32 start.s -o start.o
 
-link:
-	# Link main.o, start.o, and util.o into final executable
-	gcc -m32 -nostdlib -o task2 main.o start.o util.o
+.PHONY: clean
 
 clean:
-	# Clean up generated files
 	rm -f *.o task2
-
-run:
-	# Run the task2 executable
-	./task2
