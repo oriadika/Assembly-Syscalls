@@ -1,12 +1,12 @@
 all: task1 
 
-task1: start.o util.o
-	ld -m elf_i386 start.o util.o -o task1
+task1: start.o Util.o
+	ld -m elf_i386 start.o Util.o -o task1
 
-util.o: Util.c
-	gcc -m32 -Wall -g -ansi -c -nostdlib -fno-stack-protector Util.c -o util.o
+Util.o: Util.c
+	gcc -m32 -Wall -g -ansi -c -nostdlib -fno-stack-protector Util.c -o Util.o
 
-start.o: start.s
+start.o: start1.s
 	nasm -f elf32 start.s -o start.o
 
 .PHONY: clean
