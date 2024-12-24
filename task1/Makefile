@@ -7,7 +7,7 @@ Util.o: Util.c
 	gcc -m32 -Wall -g -ansi -c -nostdlib -fno-stack-protector Util.c -o Util.o
 
 start.o: start1.s
-	nasm -f elf32 start.s -o start.o
+	nasm -f elf32 start1.s -o start.o
 
 .PHONY: clean
 
